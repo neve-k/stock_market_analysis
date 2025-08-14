@@ -1,0 +1,103 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+plt.style.use("ggplot")
+
+# Define crash periods and tickers
+crash_periods = {
+    '2008': ('2007-01-01', '2010-01-01'),
+    '2020': ('2019-01-01', '2021-01-01'),
+    '2022': ('2021-01-01', '2023-01-01')
+}
+
+index_tickers = ['^GSPC', '^DJI', '^IXIC', '^VIX']  # S&P500, Dow Jones, Nasdaq, VIX
+sector_tickers = ['XLF', 'XLK', 'XLE', 'XLY', 'XLI', 'XLV', 'XLB', 'XLU', 'XLRE', 'XLC', 'XBI']  # Sector ETFs
+
+# Dictionary to store market index data
+market_data = {}
+
+# Download index data for each crash period
+for year, (start, end) in crash_periods.items():
+    print(f"Downloading index data for {year}...")
+    df = yf.download(index_tickers, start=start, end=end, group_by='ticker', auto_adjust=True)
+    # Create a clean DataFrame with Close prices only
+    adj_close = pd.concat({ticker: df[ticker]['Close'] for ticker in index_tickers}, axis=1)
+    market_data[year] = adj_close
+
+# Download sector ETF data
+print("Downloading sector ETF data...")
+sector_df = yf.download(sector_tickers, start='2019-01-01', end='2023-01-01', group_by='ticker', auto_adjust=True)
+sector_data = pd.concat({ticker: sector_df[ticker]['Close'] for ticker in sector_tickers}, axis=1)
+sector_data.to_csv("sector_etf_data.csv")  # Export for Tableau
+
+def plot_trend_and_volatility(df, title):
+    fig, ax1 = plt.subplots(figsize=(12, 5))
+    ax1.plot(df['^GSPC'], color='blue', label='S&P 500')
+    ax1.set_ylabel('S&P 500', color='blue')
+    ax1.set_title(f'{title} - S&P 500 and VIX')
+
+    ax2 = ax1.twinx()
+    ax2.plot(df['^VIX'], color='red', alpha=0.5, label='VIX')
+    ax2.set_ylabel('VIX', color='red')
+
+    fig.legend(loc="upper left", bbox_to_anchor=(0.1, 0.85))
+    plt.tight_layout()
+    plt.show()
+
+def plot_rolling_volatility(df, title):
+    returns = df['^GSPC'].pct_change()
+    rolling_vol = returns.rolling(window=21).std() * 100
+
+    plt.figure(figsize=(10, 4))
+    plt.plot(rolling_vol, label='21-day Rolling Volatility', color='orange')
+    plt.title(f'{title} - S&P 500 Rolling Volatility')
+    plt.ylabel('Volatility (%)')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_correlation_matrix(df, title):
+    returns = df.pct_change().dropna()
+    corr = returns.corr()
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    cax = ax.matshow(corr, cmap='coolwarm')
+    fig.colorbar(cax)
+
+    ax.set_xticks(range(len(corr.columns)))
+    ax.set_yticks(range(len(corr.columns)))
+    ax.set_xticklabels(corr.columns, rotation=90)
+    ax.set_yticklabels(corr.columns)
+    plt.title(f'{title} - Correlation Matrix', pad=20)
+    plt.tight_layout()
+    plt.show()
+
+# --- Run analysis for each crash year ---
+for year in crash_periods:
+    print(f"\n--- Analyzing {year} crash ---")
+    df = market_data[year]
+    plot_trend_and_volatility(df, year)
+    plot_rolling_volatility(df, year)
+    plot_correlation_matrix(df, year)
+
+print("Calculating sector drawdowns...")
+drawdowns = {}
+for ticker in sector_tickers:
+    prices = sector_data[ticker].dropna()
+    peak = prices.cummax()
+    drawdown = (prices - peak) / peak
+    drawdowns[ticker] = drawdown
+
+drawdown_df = pd.DataFrame(drawdowns)
+drawdown_df.to_csv("sector_drawdowns.csv")  # Export for Tableau
+
+plt.figure(figsize=(12, 6))
+for ticker in ['XLF', 'XLK', 'XLE']:
+    plt.plot(drawdown_df[ticker], label=ticker)
+plt.title("Sector Drawdowns (2019–2023)")
+plt.ylabel("Drawdown (%)")
+plt.legend()
+plt.tight_layout()
+plt.show()
